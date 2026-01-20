@@ -51,30 +51,30 @@ class ZRBTrader(Star):
         """模拟炒股指令"""
         args = event.message_str.split()
         if len(args) < 2:
-            help_text = """【模拟炒股交易助手】
-📈 市场行情
-/zrb price [币种] - 查看实时价格
-/zrb kline <币种> - 查看近期K线 (60点)
-/zrb history <币种> [天数] - 查看历史K线
-/zrb time - 查看股市交易时间表
-/zrb info [币种] - 查看币种介绍
-/zrb change - 查看当前涨跌幅
-/zrb news - 查看今日市场快讯
+            help_text = """📈 孜然币模拟炒股系统 (v1.0.6)
+━━━━━━━━━━━━━━
+� 行情
+/zrb price [币]   实时价格
+/zrb change       今日涨跌
+/zrb kline <币>   K线走势
+/zrb info [币]    币种资料
+/zrb coins        支持币种
+/zrb news         市场快讯
 
-💰 交易指令
-/zrb buy <币种> <数量> [限价] - 买入 (不填价格为市价单)
-/zrb sell <币种> <数量> [限价] - 卖出
-/zrb orders - 查看未成交挂单
-/zrb cancel <ID> - 撤销指定挂单
-/zrb assets - 查看我的资产与持仓
-/zrb today - 查看今日交易日报
+� 交易
+/zrb buy <币> <数> [价]   买入
+/zrb sell <币> <数> [价]  卖出
+/zrb orders       挂单列表
+/zrb cancel <ID>  撤销挂单
 
-🔧 管理/其他
-/zrb reset - 重置我的账户
-/zrb admin open/close - 管理员开关市
+👤 账户
+/zrb assets       我的资产
+/zrb today        今日盈亏
+/zrb reset        重置账户
 
-🪙 支持币种
-ZRB(孜然), STAR(星星), SHEEP(小羊), XIANGZI(祥子), MIAO(喵喵), QUNZHU(群主), IDEAL(理想), FEN(芬币)"""
+⚙️ 系统
+/zrb time         开市时间
+/zrb admin        管理指令"""
             yield event.plain_result(help_text)
             return
 
@@ -86,7 +86,12 @@ ZRB(孜然), STAR(星星), SHEEP(小羊), XIANGZI(祥子), MIAO(喵喵), QUNZHU(
         def is_admin():
             return user_id in self.config.get("admin_ids", [])
 
-        if cmd == "price":
+        if cmd == "coins":
+            # /zrb coins
+            coins_list = ", ".join(self.market.symbols)
+            yield event.plain_result(f"🪙 支持币种:\n{coins_list}")
+
+        elif cmd == "price":
             # /zrb price [symbol]
             msg = "【当前市场价格】\n"
             if len(args) > 2:

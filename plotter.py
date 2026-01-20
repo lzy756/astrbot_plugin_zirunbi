@@ -10,16 +10,27 @@ _custom_font_prop = None
 
 def init_font(font_path=None):
     global _custom_font_prop
-    # Try to load custom font if provided
+    
+    # Priority 1: User Configured Font
     if font_path and os.path.exists(font_path):
         try:
             _custom_font_prop = fm.FontProperties(fname=font_path)
-            # Also register it globally for matplotlib if possible, but FontProperties is safer for specific text
-            print(f"Loaded custom font from: {font_path}")
+            print(f"Loaded user config font from: {font_path}")
+            return
         except Exception as e:
-            print(f"Failed to load custom font: {e}")
-    
-    # Fallback to system fonts
+            print(f"Failed to load user config font: {e}")
+
+    # Priority 2: Bundled Font
+    bundled_font = os.path.join(os.path.dirname(__file__), "fonts", "SimHei.ttf")
+    if os.path.exists(bundled_font):
+        try:
+            _custom_font_prop = fm.FontProperties(fname=bundled_font)
+            print(f"Loaded bundled font from: {bundled_font}")
+            return
+        except Exception as e:
+            print(f"Failed to load bundled font: {e}")
+
+    # Priority 3: System Fallback
     plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'WenQuanYi Micro Hei', 'Arial', 'sans-serif']
     plt.rcParams['axes.unicode_minus'] = False
 
