@@ -2,37 +2,22 @@ import mplfinance as mpf
 import pandas as pd
 import io
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 import os
+try:
+    from mplfonts.bin.cli import init
+    init()
+    from mplfonts import use_font
+    use_font('Noto Sans CJK SC')
+except ImportError:
+    pass
 
 # Global font prop
 _custom_font_prop = None
 
 def init_font(font_path=None):
-    global _custom_font_prop
-    
-    # Priority 1: User Configured Font
-    if font_path and os.path.exists(font_path):
-        try:
-            _custom_font_prop = fm.FontProperties(fname=font_path)
-            print(f"Loaded user config font from: {font_path}")
-            return
-        except Exception as e:
-            print(f"Failed to load user config font: {e}")
-
-    # Priority 2: Bundled Font
-    bundled_font = os.path.join(os.path.dirname(__file__), "fonts", "SimHei.ttf")
-    if os.path.exists(bundled_font):
-        try:
-            _custom_font_prop = fm.FontProperties(fname=bundled_font)
-            print(f"Loaded bundled font from: {bundled_font}")
-            return
-        except Exception as e:
-            print(f"Failed to load bundled font: {e}")
-
-    # Priority 3: System Fallback
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'WenQuanYi Micro Hei', 'Arial', 'sans-serif']
-    plt.rcParams['axes.unicode_minus'] = False
+    # This function is kept for backward compatibility if user provides a specific path
+    # But mplfonts should handle most cases automatically
+    pass
 
 def plot_kline(history_data, title="K-Line"):
     if not history_data:
@@ -73,17 +58,9 @@ def plot_kline(history_data, title="K-Line"):
         ax = axlist[0]
         legend_text = "图例说明:\n🟥 红色: 涨 (Up)\n🟩 绿色: 跌 (Down)\nO:开盘 H:最高\nL:最低 C:收盘"
         
-        # Use custom font property if available
-        font_dict = {}
-        if _custom_font_prop:
-            font_dict['fontproperties'] = _custom_font_prop
-
         # Add text box at top left
         ax.text(0.02, 0.98, legend_text, transform=ax.transAxes, fontsize=9, 
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9), **font_dict)
-        
-        # Also apply font to title if needed (though mpf handles title internally, we can try to set it on axes if we passed returnfig)
-        # But mpf title is usually fine if it's English. If Chinese title, might need more work.
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
         
         fig.savefig(buf, format='png', bbox_inches='tight')
         buf.seek(0)
@@ -114,12 +91,7 @@ def plot_holdings_multi(balance, holdings_data, title="User Holdings"):
     ax.pie(sizes, labels=labels, autopct='%1.1f%%', shadow=True, startangle=90)
     ax.axis('equal')
     
-    # Apply font to title
-    font_dict = {}
-    if _custom_font_prop:
-        font_dict['fontproperties'] = _custom_font_prop
-        
-    plt.title(title, **font_dict)
+    plt.title(title)
     
     buf = io.BytesIO()
     plt.savefig(buf, format='png')

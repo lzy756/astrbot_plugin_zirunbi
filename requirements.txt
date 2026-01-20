@@ -2,3 +2,4 @@ mplfinance
 pandas
 matplotlib
 sqlalchemy
+mplfonts
