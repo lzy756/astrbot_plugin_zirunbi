@@ -8,8 +8,11 @@ try:
     init()
     from mplfonts import use_font
     use_font('Noto Sans CJK SC')
-except ImportError:
-    pass
+except Exception as e:
+    print(f"[Zirunbi] Warning: mplfonts init failed: {e}. Chinese characters might not display correctly.")
+    # Fallback: Try common Chinese fonts
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
 
 # Global font prop
 _custom_font_prop = None
