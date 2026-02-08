@@ -20,7 +20,7 @@ except ImportError:
 
 from datetime import datetime, timedelta
 
-@register("zrb_trader", "LumineStory", "模拟炒股插件", "1.1.0", "https://github.com/oyxning/astrbot-plugin-zirunbi")
+@register("zrb_trader", "LumineStory", "模拟炒股插件", "1.1.1", "https://github.com/oyxning/astrbot-plugin-zirunbi")
 class ZRBTrader(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -63,7 +63,7 @@ class ZRBTrader(Star):
         """模拟炒股指令"""
         args = event.message_str.split()
         if len(args) < 2:
-            help_text = """📈 孜然币模拟炒股系统 (v1.1.0)
+            help_text = """📈 孜然币模拟炒股系统 (v1.1.1)
 ━━━━━━━━━━━━━━
 📊 行情
 /zrb price [币]   实时价格

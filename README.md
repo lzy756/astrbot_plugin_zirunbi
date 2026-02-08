@@ -115,4 +115,4 @@ AstrBot 的一款多币种虚拟加密货币交易模拟插件。在群聊中体
 
 *   **Author**: LumineStory
 *   **Repository**: [github.com/oyxning/astrbot-plugin-zirunbi](https://github.com/oyxning/astrbot-plugin-zirunbi)
-*   **Version**: 1.1.0
+*   **Version**: 1.1.1
