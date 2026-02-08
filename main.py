@@ -2,6 +2,7 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.all import *
+from astrbot.api.message_components import Plain, Image
 import os
 import io
 import tempfile
@@ -519,10 +520,13 @@ class ZRBTrader(Star):
             # Plot
             img_buf = plotter.plot_holdings_multi(user.balance, holdings_dict)
             img_path = self._save_temp_image(img_buf)
-            if img_path:
-                yield event.image_result(img_path)
             
-            yield event.plain_result(msg)
+            chain = []
+            if img_path:
+                chain.append(Image.fromFileSystem(img_path))
+            
+            chain.append(Plain(msg))
+            yield event.chain_result(chain)
 
         elif cmd == "orders":
             session = self.db.get_session()
