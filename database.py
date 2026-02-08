@@ -106,10 +106,18 @@ class DB:
     
     def _migrate(self):
         with self.engine.connect() as conn:
+            def column_exists(table, column):
+                try:
+                    result = conn.execute(text(f"PRAGMA table_info({table})"))
+                    for row in result:
+                        if row[1] == column:
+                            return True
+                except Exception:
+                    pass
+                return False
+
             # Check and add symbol to orders
-            try:
-                conn.execute(text("SELECT symbol FROM orders LIMIT 1"))
-            except Exception:
+            if not column_exists('orders', 'symbol'):
                 try:
                     conn.execute(text("ALTER TABLE orders ADD COLUMN symbol VARCHAR"))
                     conn.commit()
@@ -117,9 +125,7 @@ class DB:
                     print(f"Migration error (orders.symbol): {e}")
 
             # Check and add symbol to market_history
-            try:
-                conn.execute(text("SELECT symbol FROM market_history LIMIT 1"))
-            except Exception:
+            if not column_exists('market_history', 'symbol'):
                 try:
                     conn.execute(text("ALTER TABLE market_history ADD COLUMN symbol VARCHAR"))
                     conn.commit()
@@ -127,14 +133,16 @@ class DB:
                     print(f"Migration error (market_history.symbol): {e}")
             
             # Check and add password_hash to users
-            try:
-                conn.execute(text("SELECT password_hash FROM users LIMIT 1"))
-            except Exception:
+            if not column_exists('users', 'password_hash'):
                 try:
                     conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
                     conn.commit()
                 except Exception as e:
                     print(f"Migration error (users.password_hash): {e}")
+            
+            # Ensure transactions are committed
+            if conn.in_transaction():
+                conn.commit()
 
         self.Session = sessionmaker(bind=self.engine)
     

@@ -1,0 +1,86 @@
+import os
+import shutil
+import sqlite3
+import logging
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+DB_FILE = os.path.join(os.path.dirname(__file__), 'zirunbi.db')
+BACKUP_DIR = os.path.join(os.path.dirname(__file__), 'backups')
+
+def backup_database():
+    if not os.path.exists(DB_FILE):
+        logger.warning(f"Database file {DB_FILE} does not exist. Skipping backup.")
+        return False
+
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_file = os.path.join(BACKUP_DIR, f"zirunbi.db.{timestamp}.bak")
+    
+    try:
+        shutil.copy2(DB_FILE, backup_file)
+        logger.info(f"Database backed up to {backup_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to backup database: {e}")
+        return False
+
+def column_exists(cursor, table_name, column_name):
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = [info[1] for info in cursor.fetchall()]
+    return column_name in columns
+
+def check_and_add_column(cursor, table, column, col_type):
+    if not column_exists(cursor, table, column):
+        logger.info(f"Adding column {column} to table {table}...")
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+            logger.info(f"Successfully added column {column}.")
+        except Exception as e:
+            logger.error(f"Failed to add column {column}: {e}")
+            raise e
+    else:
+        logger.debug(f"Column {column} already exists in table {table}.")
+
+def migrate():
+    logger.info("Starting database migration...")
+    
+    # 1. Backup
+    if os.path.exists(DB_FILE):
+        if not backup_database():
+             logger.error("Backup failed. Aborting migration to prevent data loss.")
+             return
+    else:
+         logger.info("No existing database. Skipping migration (will be created by app).")
+         return
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    try:
+        # Migration 1: Add symbol to orders
+        check_and_add_column(cursor, 'orders', 'symbol', 'VARCHAR')
+
+        # Migration 2: Add symbol to market_history
+        check_and_add_column(cursor, 'market_history', 'symbol', 'VARCHAR')
+
+        # Migration 3: Add password_hash to users
+        check_and_add_column(cursor, 'users', 'password_hash', 'VARCHAR')
+
+        conn.commit()
+        logger.info("Migration completed successfully.")
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Migration failed: {e}")
+        logger.info("Rolled back changes.")
+    finally:
+        conn.close()
+
+if __name__ == "__main__":
+    migrate()
