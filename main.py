@@ -153,9 +153,8 @@ class ZRBTrader(Star):
             yield event.plain_result(msg)
             
         elif cmd == "kline":
-            # /zrb kline <symbol>
             if len(args) < 3:
-                yield event.plain_result("请输入币种，例如: /zrb kline ZRB")
+                yield event.plain_result("请输入币种，例如: /zrb kline ZRB [数量]")
                 return
             sym = args[2].upper()
             if sym not in self.market.symbols:
@@ -164,20 +163,28 @@ class ZRBTrader(Star):
 
             if not self.market.is_open:
                 yield event.plain_result(f"当前市场休市中，价格未变动。\n您可以查看截止休市前的K线。")
-                
+
+            kline_limit = 60
+            if len(args) > 3:
+                try:
+                    kline_limit = int(args[3])
+                    kline_limit = max(10, min(kline_limit, 500))
+                except ValueError:
+                    pass
+
             session = self.db.get_session()
-            history = session.query(MarketHistory).filter_by(symbol=sym).order_by(MarketHistory.timestamp.desc()).limit(60).all()
-            session.close()
-            
-            # Reverse back to chronological order
-            history = history[::-1]
+            try:
+                history = session.query(MarketHistory).filter_by(symbol=sym).order_by(MarketHistory.timestamp.desc()).limit(kline_limit).all()
+                history = history[::-1]
+            finally:
+                session.close()
             
             if not history:
                 yield event.plain_result(f"暂无 {sym} 历史数据")
                 return
                 
             title_suffix = " (Closed)" if not self.market.is_open else ""
-            img_buf = plotter.plot_kline(history, title=f"{sym} Recent K-Line{title_suffix}")
+            img_buf = plotter.plot_kline(history, title=f"{sym} K-Line ({len(history)}){title_suffix}")
             if img_buf:
                 img_path = self._save_temp_image(img_buf)
                 if img_path:
@@ -400,10 +407,7 @@ class ZRBTrader(Star):
                     pct = (diff / base_price) * 100
                     
                     # Formatting
-                    icon = "🔴" if diff > 0 else "fz" if diff < 0 else "⚪" # 🔴Up, 🟢Down (China standard: Red Up, Green Down)
-                    # Actually standard emoji: 📈 📉
-                    # But user asked for "mark how much it rose".
-                    # China stock color: Red=Rise, Green=Fall.
+                    icon = "🔴" if diff > 0 else "🟢" if diff < 0 else "⚪"
                     color_icon = "📈" if diff > 0 else "📉" if diff < 0 else "➖"
                     sign = "+" if diff > 0 else ""
                     
