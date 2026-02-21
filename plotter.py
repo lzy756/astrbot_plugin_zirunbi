@@ -2,7 +2,19 @@ import mplfinance as mpf
 import pandas as pd
 import io
 import matplotlib.pyplot as plt
+from matplotlib import font_manager as fm
 import os
+
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_PLUGIN_FONT = os.path.join("fonts", "SourceHanSansSC-Regular.otf")
+FALLBACK_FONT_FAMILIES = [
+    "SimHei",
+    "Arial Unicode MS",
+    "Microsoft YaHei",
+    "WenQuanYi Micro Hei",
+    "sans-serif",
+]
+
 try:
     from mplfonts.bin.cli import init
     init()
@@ -11,16 +23,52 @@ try:
 except Exception as e:
     print(f"[Zirunbi] Warning: mplfonts init failed: {e}. Chinese characters might not display correctly.")
     # Fallback: Try common Chinese fonts
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'sans-serif']
+    plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
     plt.rcParams['axes.unicode_minus'] = False
 
 # Global font prop
 _custom_font_prop = None
 
 def init_font(font_path=None):
-    # This function is kept for backward compatibility if user provides a specific path
-    # But mplfonts should handle most cases automatically
-    pass
+    global _custom_font_prop
+
+    candidate_paths = []
+    clean_path = (font_path or "").strip()
+
+    if clean_path:
+        candidate_paths.append(clean_path)
+        if not os.path.isabs(clean_path):
+            candidate_paths.append(os.path.join(PLUGIN_DIR, clean_path))
+    else:
+        candidate_paths.append(os.path.join(PLUGIN_DIR, DEFAULT_PLUGIN_FONT))
+
+    resolved_path = None
+    for path in candidate_paths:
+        if path and os.path.isfile(path):
+            resolved_path = path
+            break
+
+    if not resolved_path:
+        print(
+            f"[Zirunbi] Font file not found for path='{clean_path}'. "
+            "Using mplfonts/system fallback."
+        )
+        plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
+        plt.rcParams['axes.unicode_minus'] = False
+        return
+
+    try:
+        fm.fontManager.addfont(resolved_path)
+        _custom_font_prop = fm.FontProperties(fname=resolved_path)
+        custom_font_name = _custom_font_prop.get_name()
+        plt.rcParams['font.family'] = 'sans-serif'
+        plt.rcParams['font.sans-serif'] = [custom_font_name] + FALLBACK_FONT_FAMILIES
+        plt.rcParams['axes.unicode_minus'] = False
+        print(f"[Zirunbi] Loaded custom font: {custom_font_name} ({resolved_path})")
+    except Exception as e:
+        print(f"[Zirunbi] Failed to load custom font '{resolved_path}': {e}")
+        plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
+        plt.rcParams['axes.unicode_minus'] = False
 
 def plot_kline(history_data, title="K-Line"):
     if not history_data:
