@@ -2,6 +2,13 @@ import threading
 import time
 import random
 from datetime import datetime, timedelta, timezone
+
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+
 try:
     from .database import DB, User, UserHolding, Order, OrderType, OrderStatus, MarketHistory, MarketNews, get_china_time, sync_network_time
 except ImportError:
@@ -56,9 +63,8 @@ class Market:
         # Load last prices from DB
         self._load_history()
         
-        # Update interval
         self.last_update_time = time.time()
-        self.update_interval = 180 # 3 minutes
+        self.update_interval = int(config.get("update_interval", 180))
         
         # News Templates
         self.news_templates = [
@@ -102,7 +108,7 @@ class Market:
                     self.current_candles[sym]["close"] = last.close
             session.close()
         except Exception as e:
-            print(f"Error loading history: {e}")
+            logger.error(f"Error loading history: {e}")
 
     def start(self):
         if self.running:
@@ -221,7 +227,7 @@ class Market:
                     self.manual_override = None 
                     self.is_open = should_be_open
                     self.last_auto_state = should_be_open
-                    print(f"[Zirunbi] Market state auto-transition to: {'OPEN' if should_be_open else 'CLOSED'}")
+                    logger.info(f"[Zirunbi] Market state auto-transition to: {'OPEN' if should_be_open else 'CLOSED'}")
                     
                     # If market just opened, trigger match orders immediately
                     if self.is_open:
@@ -247,7 +253,7 @@ class Market:
                 
                 time.sleep(1)
             except Exception as e:
-                print(f"Market loop error: {e}")
+                logger.error(f"Market loop error: {e}")
                 time.sleep(5)
 
     def _generate_news(self):
@@ -267,7 +273,7 @@ class Market:
                 session.commit()
                 session.close()
             except Exception as e:
-                print(f"Generate news error: {e}")
+                logger.error(f"Generate news error: {e}")
 
     def _update_prices(self):
         with self.lock:

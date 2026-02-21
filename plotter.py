@@ -5,6 +5,12 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager as fm
 import os
 
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PLUGIN_FONT = os.path.join("fonts", "SourceHanSansSC-Regular.otf")
 FALLBACK_FONT_FAMILIES = [
@@ -21,7 +27,7 @@ try:
     from mplfonts import use_font
     use_font('Noto Sans CJK SC')
 except Exception as e:
-    print(f"[Zirunbi] Warning: mplfonts init failed: {e}. Chinese characters might not display correctly.")
+    logger.warning(f"mplfonts init failed: {e}. Chinese characters might not display correctly.")
     # Fallback: Try common Chinese fonts
     plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
     plt.rcParams['axes.unicode_minus'] = False
@@ -49,8 +55,8 @@ def init_font(font_path=None):
             break
 
     if not resolved_path:
-        print(
-            f"[Zirunbi] Font file not found for path='{clean_path}'. "
+        logger.warning(
+            f"Font file not found for path='{clean_path}'. "
             "Using mplfonts/system fallback."
         )
         plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
@@ -64,9 +70,9 @@ def init_font(font_path=None):
         plt.rcParams['font.family'] = 'sans-serif'
         plt.rcParams['font.sans-serif'] = [custom_font_name] + FALLBACK_FONT_FAMILIES
         plt.rcParams['axes.unicode_minus'] = False
-        print(f"[Zirunbi] Loaded custom font: {custom_font_name} ({resolved_path})")
+        logger.info(f"Loaded custom font: {custom_font_name} ({resolved_path})")
     except Exception as e:
-        print(f"[Zirunbi] Failed to load custom font '{resolved_path}': {e}")
+        logger.error(f"Failed to load custom font '{resolved_path}': {e}")
         plt.rcParams['font.sans-serif'] = FALLBACK_FONT_FAMILIES
         plt.rcParams['axes.unicode_minus'] = False
 
@@ -118,7 +124,7 @@ def plot_kline(history_data, title="K-Line"):
         plt.close(fig)
         return buf
     except Exception as e:
-        print(f"Plot error: {e}")
+        logger.error(f"Plot error: {e}")
         return None
 
 def plot_holdings_multi(balance, holdings_data, title="User Holdings"):
