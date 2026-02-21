@@ -1,8 +1,14 @@
-import requests
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum, ForeignKey, Text, text
+import httpx
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum, ForeignKey, Text, text, Index
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, timedelta, timezone
 import enum
+
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -12,28 +18,24 @@ _time_offset = 0
 def sync_network_time():
     global _time_offset
     try:
-        # Using a reliable public HTTP endpoint
-        # Baidu is reliable in China
-        resp = requests.head("http://www.baidu.com", timeout=3)
+        resp = httpx.head("http://www.baidu.com", timeout=3)
         date_str = resp.headers.get('Date')
         if date_str:
-            # Parse RFC 2822 date
-            # e.g., "Wed, 21 Oct 2015 07:28:00 GMT"
             network_time = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S GMT')
             network_time = network_time.replace(tzinfo=timezone.utc)
             
-            system_time = datetime.utcnow().replace(tzinfo=timezone.utc)
+            system_time = datetime.now(timezone.utc)
             
             _time_offset = (network_time - system_time).total_seconds()
-            print(f"[Zirunbi] Time synced. Offset: {_time_offset:.2f}s")
+            logger.info(f"[Zirunbi] Time synced. Offset: {_time_offset:.2f}s")
         else:
-            print("[Zirunbi] Failed to get Date header")
+            logger.warning("[Zirunbi] Failed to get Date header")
     except Exception as e:
-        print(f"[Zirunbi] Time sync failed: {e}")
+        logger.warning(f"[Zirunbi] Time sync failed: {e}")
 
 # China Timezone helper with offset
 def get_china_time():
-    utc_now = datetime.utcnow().replace(tzinfo=timezone.utc)
+    utc_now = datetime.now(timezone.utc)
     # Apply offset
     utc_now = utc_now + timedelta(seconds=_time_offset)
     
@@ -122,7 +124,7 @@ class DB:
                     conn.execute(text("ALTER TABLE orders ADD COLUMN symbol VARCHAR"))
                     conn.commit()
                 except Exception as e:
-                    print(f"Migration error (orders.symbol): {e}")
+                    logger.warning(f"Migration error (orders.symbol): {e}")
 
             # Check and add symbol to market_history
             if not column_exists('market_history', 'symbol'):
@@ -130,7 +132,7 @@ class DB:
                     conn.execute(text("ALTER TABLE market_history ADD COLUMN symbol VARCHAR"))
                     conn.commit()
                 except Exception as e:
-                    print(f"Migration error (market_history.symbol): {e}")
+                    logger.warning(f"Migration error (market_history.symbol): {e}")
             
             # Check and add password_hash to users
             if not column_exists('users', 'password_hash'):
@@ -138,8 +140,22 @@ class DB:
                     conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
                     conn.commit()
                 except Exception as e:
-                    print(f"Migration error (users.password_hash): {e}")
+                    logger.warning(f"Migration error (users.password_hash): {e}")
             
+            # Create indexes for query performance (safe for both new and existing databases)
+            index_definitions = [
+                ('ix_market_history_symbol_ts', 'market_history', 'symbol, timestamp'),
+                ('ix_orders_user_status', 'orders', 'user_id, status'),
+                ('ix_orders_user_created', 'orders', 'user_id, created_at'),
+                ('ix_user_holdings_user_symbol', 'user_holdings', 'user_id, symbol'),
+                ('ix_market_news_timestamp', 'market_news', 'timestamp'),
+            ]
+            for idx_name, table, columns in index_definitions:
+                try:
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({columns})"))
+                except Exception as e:
+                    logger.warning(f"Index creation {idx_name}: {e}")
+
             # Ensure transactions are committed
             if conn.in_transaction():
                 conn.commit()
