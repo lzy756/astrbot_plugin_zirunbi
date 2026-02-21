@@ -150,10 +150,17 @@
         }, 4000);
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        chartInstance = echarts.init(document.getElementById('kline-chart'));
-        window.addEventListener('resize', function() { chartInstance.resize(); });
+    function ensureChartInitialized() {
+        if (!chartInstance) {
+            chartInstance = echarts.init(document.getElementById('kline-chart'));
+            window.addEventListener('resize', function() {
+                if (chartInstance) chartInstance.resize();
+            });
+        }
+        chartInstance.resize();
+    }
 
+    document.addEventListener('DOMContentLoaded', function() {
         checkSession();
     });
 
@@ -215,6 +222,10 @@
     function initApp() {
         document.getElementById('app-content').style.display = 'block';
         document.getElementById('nav-user-id').innerText = currentUser.user_id;
+
+        requestAnimationFrame(function() {
+            ensureChartInitialized();
+        });
 
         refreshData();
         refreshInterval = setInterval(refreshData, 3000);
@@ -303,6 +314,7 @@
     }
 
     async function loadFullKline(sym) {
+        ensureChartInitialized();
         chartInstance.showLoading();
         try {
             const res = await fetch('/api/kline/' + sym);
@@ -348,6 +360,7 @@
     }
 
     function renderChart(symbol, rawData, zoomState) {
+        ensureChartInitialized();
         if (!rawData || rawData.length === 0) {
             chartInstance.clear();
             return;
