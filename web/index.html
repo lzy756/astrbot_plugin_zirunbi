@@ -13,7 +13,7 @@
         .market-list-item.active { background-color: #e9ecef; border-left: 4px solid #0d6efd; }
         .price-up { color: #dc3545; font-weight: bold; }
         .price-down { color: #198754; font-weight: bold; }
-        #kline-chart { width: 100%; height: 450px; }
+        #kline-chart { width: 100%; height: 520px; }
         .card-shadow { box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: none; }
         .login-container { max-width: 400px; margin-top: 100px; }
         #app-content { display: none; }
@@ -353,62 +353,134 @@
             return;
         }
 
-        const dates = rawData.map(function(item) { return item.time; });
-        const data = rawData.map(function(item) { return [item.open, item.close, item.low, item.high]; });
-        const volumes = rawData.map(function(item, index) { return [index, item.volume, item.open > item.close ? -1 : 1]; });
+        var dates = rawData.map(function(item) { return item.time; });
+        var ohlc = rawData.map(function(item) { return [item.open, item.close, item.low, item.high]; });
+        var volColors = rawData.map(function(item) { return item.close >= item.open ? 1 : -1; });
+        var volData = rawData.map(function(item) { return item.volume; });
 
         var zoomStart = 0;
         var zoomEnd = 100;
         if (zoomState) {
             zoomStart = zoomState.start;
             zoomEnd = zoomState.end;
-        } else if (rawData.length > 120) {
-            zoomStart = Math.max(0, 100 - (120 / rawData.length) * 100);
+        } else if (rawData.length > 60) {
+            zoomStart = Math.max(0, 100 - (60 / rawData.length) * 100);
         }
 
-        const option = {
+        var option = {
             animation: false,
             tooltip: {
                 trigger: 'axis',
-                axisPointer: { type: 'cross' }
+                axisPointer: { type: 'cross' },
+                formatter: function(params) {
+                    if (!params || params.length === 0) return '';
+                    var d = params[0];
+                    var idx = d.dataIndex;
+                    var item = rawData[idx];
+                    if (!item) return '';
+                    var color = item.close >= item.open ? '#dc3545' : '#198754';
+                    var change = item.close - item.open;
+                    var changePct = item.open !== 0 ? (change / item.open * 100).toFixed(2) : '0.00';
+                    var sign = change >= 0 ? '+' : '';
+                    return '<div style="font-size:13px;line-height:1.8">' +
+                        '<b>' + item.time + '</b><br/>' +
+                        '<span style="color:' + color + '">' + symbol + '</span><br/>' +
+                        '开盘: <b>' + item.open.toFixed(2) + '</b><br/>' +
+                        '收盘: <b>' + item.close.toFixed(2) + '</b><br/>' +
+                        '最高: <b>' + item.high.toFixed(2) + '</b><br/>' +
+                        '最低: <b>' + item.low.toFixed(2) + '</b><br/>' +
+                        '涨跌: <span style="color:' + color + '">' + sign + change.toFixed(2) + ' (' + sign + changePct + '%)</span><br/>' +
+                        '成交量: ' + item.volume.toFixed(2) +
+                        '</div>';
+                }
+            },
+            axisPointer: {
+                link: [{ xAxisIndex: 'all' }],
+                label: { backgroundColor: '#555' }
             },
             grid: [
-                { left: '10%', right: '8%', height: '60%' },
-                { left: '10%', right: '8%', top: '75%', height: '15%' }
+                { left: 60, right: 30, top: 20, bottom: '30%' },
+                { left: 60, right: 30, height: 60, bottom: 50 }
             ],
             xAxis: [
-                { type: 'category', data: dates, scale: true, boundaryGap: false, axisLine: { onZero: false }, splitLine: { show: false }, min: 'dataMin', max: 'dataMax' },
-                { type: 'category', gridIndex: 1, data: dates, scale: true, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, min: 'dataMin', max: 'dataMax' }
+                {
+                    type: 'category',
+                    data: dates,
+                    boundaryGap: true,
+                    axisLine: { onZero: false, lineStyle: { color: '#ccc' } },
+                    splitLine: { show: false },
+                    axisLabel: {
+                        fontSize: 11,
+                        color: '#666',
+                        formatter: function(val) {
+                            return val.substring(5);
+                        }
+                    },
+                    min: 'dataMin',
+                    max: 'dataMax'
+                },
+                {
+                    type: 'category',
+                    gridIndex: 1,
+                    data: dates,
+                    boundaryGap: true,
+                    axisLine: { onZero: false },
+                    axisTick: { show: false },
+                    splitLine: { show: false },
+                    axisLabel: { show: false },
+                    min: 'dataMin',
+                    max: 'dataMax'
+                }
             ],
             yAxis: [
-                { scale: true, splitArea: { show: true } },
-                { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } }
+                {
+                    scale: true,
+                    splitArea: { show: true, areaStyle: { color: ['rgba(250,250,250,0.3)', 'rgba(240,240,240,0.3)'] } },
+                    splitLine: { lineStyle: { color: '#eee' } },
+                    axisLabel: {
+                        fontSize: 11,
+                        color: '#666',
+                        formatter: function(val) { return val.toFixed(2); }
+                    }
+                },
+                {
+                    scale: true,
+                    gridIndex: 1,
+                    splitNumber: 2,
+                    axisLabel: { show: false },
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    splitLine: { show: false }
+                }
             ],
             dataZoom: [
                 { type: 'inside', xAxisIndex: [0, 1], start: zoomStart, end: zoomEnd },
-                { show: true, xAxisIndex: [0, 1], type: 'slider', top: '90%', start: zoomStart, end: zoomEnd }
+                { show: true, xAxisIndex: [0, 1], type: 'slider', bottom: 10, height: 25, start: zoomStart, end: zoomEnd,
+                  borderColor: '#ccc', fillerColor: 'rgba(13,110,253,0.15)', handleStyle: { color: '#0d6efd' } }
             ],
             series: [
                 {
                     name: symbol,
                     type: 'candlestick',
-                    data: data,
+                    data: ohlc,
                     itemStyle: {
                         color: '#dc3545',
                         color0: '#198754',
                         borderColor: '#dc3545',
                         borderColor0: '#198754'
-                    }
+                    },
+                    barMaxWidth: 20
                 },
                 {
                     name: 'Volume',
                     type: 'bar',
                     xAxisIndex: 1,
                     yAxisIndex: 1,
-                    data: volumes.map(function(item) { return item[1]; }),
+                    data: volData,
+                    barMaxWidth: 16,
                     itemStyle: {
                         color: function(params) {
-                            return volumes[params.dataIndex][2] > 0 ? '#dc3545' : '#198754';
+                            return volColors[params.dataIndex] > 0 ? 'rgba(220,53,69,0.5)' : 'rgba(25,135,84,0.5)';
                         }
                     }
                 }

@@ -206,11 +206,11 @@ async def get_kline(
     for h in history:
         data.append({
             "time": h.timestamp.strftime('%Y-%m-%d %H:%M'),
-            "open": h.open,
-            "high": h.high,
-            "low": h.low,
-            "close": h.close,
-            "volume": h.volume,
+            "open": round(h.open, 2),
+            "high": round(h.high, 2),
+            "low": round(h.low, 2),
+            "close": round(h.close, 2),
+            "volume": round(h.volume, 2),
         })
     return {"symbol": symbol, "data": data}
 
