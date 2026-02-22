@@ -1,9 +1,10 @@
+import io
+import os
+
+import matplotlib.pyplot as plt
 import mplfinance as mpf
 import pandas as pd
-import io
-import matplotlib.pyplot as plt
 from matplotlib import font_manager as fm
-import os
 
 try:
     from astrbot.api import logger

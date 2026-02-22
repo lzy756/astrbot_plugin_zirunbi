@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    name: Ruff lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format=github"
+
+  python-smoke:
+    name: Smoke test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+
+    env:
+      MPLBACKEND: Agg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip check
+
+      - name: Compile all (syntax check, includes main.py)
+        run: python -m compileall -q .
+
+      - name: Import smoke test (skip main.py — requires AstrBot)
+        run: |
+          python -c "import database, market, plotter, web_server; print('All module imports OK')"
+
+      - name: DB init + migrate.py idempotency
+        run: |
+          python -c "from database import DB; DB('zirunbi.db'); print('DB init OK')"
+          python migrate.py
+
+  metadata:
+    name: Validate metadata & schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validators
+        run: pip install pyyaml yamllint
+
+      - name: YAML lint
+        run: |
+          yamllint -c .yamllint.yml metadata.yaml
+          yamllint -c .yamllint.yml .github/workflows/*.yml
+          yamllint -c .yamllint.yml .github/release.yml
+
+      - name: Validate metadata.yaml structure
+        run: |
+          python -c "
+          import pathlib, re, sys, yaml
+          data = yaml.safe_load(pathlib.Path('metadata.yaml').read_text(encoding='utf-8'))
+          for k in ['name', 'author', 'version', 'description']:
+              if k not in data or not str(data[k]).strip():
+                  print(f'metadata.yaml missing or empty: {k}', file=sys.stderr)
+                  sys.exit(1)
+          if not re.match(r'^\d+\.\d+\.\d+$', str(data['version'])):
+              print('metadata.yaml version must match x.y.z', file=sys.stderr)
+              sys.exit(1)
+          print('metadata.yaml OK')
+          "
+
+      - name: Validate _conf_schema.json structure
+        run: |
+          python -c "
+          import json, pathlib, sys
+          obj = json.loads(pathlib.Path('_conf_schema.json').read_text(encoding='utf-8'))
+          if not isinstance(obj, dict) or not obj:
+              print('_conf_schema.json must be a non-empty object', file=sys.stderr)
+              sys.exit(1)
+          allowed = {'int', 'float', 'string', 'list'}
+          for key, spec in obj.items():
+              if not isinstance(spec, dict):
+                  print(f'{key}: value must be an object', file=sys.stderr)
+                  sys.exit(1)
+              for req in ['description', 'type', 'default']:
+                  if req not in spec:
+                      print(f'{key}: missing required field \"{req}\"', file=sys.stderr)
+                      sys.exit(1)
+              t = spec['type']
+              if t not in allowed:
+                  print(f'{key}: invalid type \"{t}\"', file=sys.stderr)
+                  sys.exit(1)
+              if t == 'list':
+                  items = spec.get('items', {})
+                  if not isinstance(items, dict) or items.get('type') not in {'string', 'int', 'float'}:
+                      print(f'{key}: list type must define items.type (string/int/float)', file=sys.stderr)
+                      sys.exit(1)
+          print('_conf_schema.json OK')
+          "

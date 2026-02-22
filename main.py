@@ -1,22 +1,33 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
-from astrbot.api.all import *
 import os
 import tempfile
 
+from astrbot.api import logger
+from astrbot.api.all import *
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.star import Context, Star, register
+
 try:
-    from .database import DB, User, Order, OrderType, OrderStatus, MarketHistory, UserHolding, MarketNews, get_china_time
-    from .market import Market
     from . import plotter
+    from .database import (
+        DB,
+        MarketHistory,
+        MarketNews,
+        Order,
+        OrderStatus,
+        OrderType,
+        UserHolding,
+        get_china_time,
+    )
+    from .market import Market
     from .web_server import WebServer, pwd_context
 except ImportError:
-    from database import DB, User, Order, OrderType, OrderStatus, MarketHistory, UserHolding, MarketNews, get_china_time
-    from market import Market
     import plotter
+    from database import DB, MarketHistory, MarketNews, Order, OrderStatus, OrderType, UserHolding, get_china_time
+    from market import Market
     from web_server import WebServer, pwd_context
 
-from datetime import datetime, timedelta
+from datetime import timedelta
+
 
 @register("zrb_trader", "LumineStory", "模拟炒股插件", "1.1.1", "https://github.com/oyxning/astrbot-plugin-zirunbi")
 class ZRBTrader(Star):
@@ -131,7 +142,7 @@ class ZRBTrader(Star):
                 web_port = self.config.get("web_port", 8000)
                 web_url = f"http://<BotIP>:{web_port}"
             
-            msg = f"✅ Web账号注册成功！\n"
+            msg = "✅ Web账号注册成功！\n"
             msg += f"👤 账号: {user_id}\n"
             msg += f"🔑 密码: {password} (请妥善保管)\n"
             msg += f"🌐 登录地址: {web_url}"
@@ -162,7 +173,7 @@ class ZRBTrader(Star):
                 return
 
             if not self.market.is_open:
-                yield event.plain_result(f"当前市场休市中，价格未变动。\n您可以查看截止休市前的K线。")
+                yield event.plain_result("当前市场休市中，价格未变动。\n您可以查看截止休市前的K线。")
 
             kline_limit = 60
             if len(args) > 3:
@@ -224,7 +235,7 @@ class ZRBTrader(Star):
             session.close()
             
             if not history:
-                yield event.plain_result(f"当日无数据")
+                yield event.plain_result("当日无数据")
                 return
             
             # If too many points, resample might be needed, but for now just plot all (mpf handles reasonable amount)
@@ -351,7 +362,7 @@ class ZRBTrader(Star):
                         yield event.plain_result(f"未知币种: {sym}")
             else:
                 msg = "【币种介绍大全 (虚拟资产)】\n\n"
-                for code, desc in coin_info.items():
+                for _code, desc in coin_info.items():
                     msg += f"{desc}\n{'-'*20}\n"
                 yield event.plain_result(msg)
 
@@ -407,7 +418,6 @@ class ZRBTrader(Star):
                     pct = (diff / base_price) * 100
                     
                     # Formatting
-                    icon = "🔴" if diff > 0 else "🟢" if diff < 0 else "⚪"
                     color_icon = "📈" if diff > 0 else "📉" if diff < 0 else "➖"
                     sign = "+" if diff > 0 else ""
                     

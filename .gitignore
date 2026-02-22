@@ -1,3 +1,7 @@
 __pycache__/
 *.db
+*.db.bak
 .DS_Store
+.vscode/
+.venv/
+nul

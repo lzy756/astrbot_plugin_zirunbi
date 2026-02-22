@@ -1,15 +1,16 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Cookie
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from typing import Optional
-import uvicorn
 import asyncio
 import os
 import secrets
 import socket
+from typing import Optional
+
+import uvicorn
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from passlib.context import CryptContext
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 try:
     from astrbot.api import logger
@@ -18,10 +19,10 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 try:
-    from .database import DB, User, UserHolding, Order, OrderType, OrderStatus, MarketHistory, get_china_time
+    from .database import DB, MarketHistory, Order, OrderStatus, OrderType, User, UserHolding
     from .market import Market
 except ImportError:
-    from database import DB, User, UserHolding, Order, OrderType, OrderStatus, MarketHistory, get_china_time
+    from database import DB, MarketHistory, Order, OrderStatus, OrderType, User, UserHolding
     from market import Market
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -259,7 +260,7 @@ async def get_kline(
 
 @app.get("/")
 async def index():
-    with open(os.path.join(static_path, "index.html"), "r", encoding="utf-8") as f:
+    with open(os.path.join(static_path, "index.html"), encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
@@ -283,7 +284,7 @@ class WebServer:
     async def start(self):
         if self.is_port_in_use():
             logger.error(f"[Zirunbi] Web Server Error: Port {self.port} is already in use!")
-            logger.error(f"[Zirunbi] Please change 'web_port' in plugin config or close the application using this port.")
+            logger.error("[Zirunbi] Please change 'web_port' in plugin config or close the application using this port.")
             return
 
         try:
