@@ -180,6 +180,48 @@ async def trade(
     }
 
 
+@app.get("/api/orders")
+async def get_orders(
+    user_id: str = Depends(get_current_user),
+    session: Session = Depends(get_db),
+):
+    orders = (
+        session.query(Order)
+        .filter_by(user_id=user_id, status=OrderStatus.PENDING)
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    orders_list = []
+    for o in orders:
+        orders_list.append({
+            "id": o.id,
+            "symbol": o.symbol,
+            "order_type": o.order_type.value,
+            "price": o.price,
+            "amount": o.amount,
+            "created_at": o.created_at.strftime('%Y-%m-%d %H:%M') if o.created_at else "",
+        })
+    return {"orders": orders_list}
+
+
+@app.post("/api/orders/{order_id}/cancel")
+async def cancel_order(
+    order_id: int,
+    user_id: str = Depends(get_current_user),
+    session: Session = Depends(get_db),
+):
+    order = (
+        session.query(Order)
+        .filter_by(id=order_id, user_id=user_id, status=OrderStatus.PENDING)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found or cannot be cancelled")
+    order.status = OrderStatus.CANCELLED
+    session.commit()
+    return {"status": "success", "message": "Order cancelled"}
+
+
 @app.get("/api/kline/{symbol}")
 async def get_kline(
     symbol: str,

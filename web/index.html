@@ -195,6 +195,65 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
         }
+
+        /* Orders Table */
+        .orders-table {
+            font-size: 0.875rem;
+            margin-bottom: 0;
+        }
+        .orders-table th {
+            background-color: #f8fafc;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            padding: 0.65rem 0.75rem;
+            white-space: nowrap;
+        }
+        .orders-table td {
+            padding: 0.6rem 0.75rem;
+            vertical-align: middle;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .orders-table tbody tr:hover {
+            background-color: #f8fafc;
+        }
+        .orders-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .badge-buy {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: var(--up-color);
+            font-weight: 600;
+            padding: 0.3em 0.65em;
+            border-radius: 6px;
+        }
+        .badge-sell {
+            background-color: rgba(46, 204, 113, 0.1);
+            color: var(--down-color);
+            font-weight: 600;
+            padding: 0.3em 0.65em;
+            border-radius: 6px;
+        }
+        .btn-cancel-order {
+            padding: 0.2rem 0.6rem;
+            font-size: 0.78rem;
+            border-radius: 6px;
+        }
+        .orders-count-badge {
+            background-color: var(--primary-color);
+            color: white;
+            font-size: 0.7rem;
+            padding: 0.2em 0.55em;
+            border-radius: 50%;
+            margin-left: 0.4rem;
+            min-width: 1.2rem;
+            display: inline-block;
+            text-align: center;
+            line-height: 1.3;
+        }
     </style>
 </head>
 <body>
@@ -279,6 +338,25 @@
                         <div id="kline-chart"></div>
                     </div>
                 </div>
+
+                <div class="card card-shadow">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-clock-history text-primary me-2 fs-5"></i>
+                            <span>当前挂单</span>
+                            <span class="orders-count-badge" id="orders-count" style="display:none;">0</span>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="refreshOrders()" title="刷新挂单">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                    <div class="card-body p-0" id="orders-container">
+                        <div class="text-muted text-center py-4">
+                            <i class="bi bi-inbox fs-3 d-block mb-2 opacity-50"></i>
+                            暂无挂单
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="col-md-3">
@@ -361,7 +439,7 @@
             '</div></div>';
         container.insertAdjacentHTML('beforeend', html);
         setTimeout(function() {
-            const el = document.getElementById(id);
+            var el = document.getElementById(id);
             if (el) el.remove();
         }, 4000);
     }
@@ -382,9 +460,9 @@
 
     async function checkSession() {
         try {
-            const res = await fetch('/api/me');
+            var res = await fetch('/api/me');
             if (res.ok) {
-                const data = await res.json();
+                var data = await res.json();
                 currentUser = { user_id: data.user_id };
                 initApp();
             } else {
@@ -401,18 +479,18 @@
     }
 
     async function handleLogin() {
-        const uid = document.getElementById('login-uid').value;
-        const pwd = document.getElementById('login-pwd').value;
+        var uid = document.getElementById('login-uid').value;
+        var pwd = document.getElementById('login-pwd').value;
 
         if (!uid || !pwd) { showToast('请输入完整信息', 'warning'); return; }
 
         try {
-            const res = await fetch('/api/login', {
+            var res = await fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({user_id: uid, password: pwd})
             });
-            const data = await res.json();
+            var data = await res.json();
 
             if (res.ok) {
                 currentUser = { user_id: data.user_id };
@@ -453,37 +531,39 @@
         if (!currentUser) return;
 
         try {
-            const res = await fetch('/api/market');
+            var res = await fetch('/api/market');
             if (res.status === 401) { showLoginView(); return; }
-            const data = await res.json();
+            var data = await res.json();
             marketPrices = data.prices;
             renderMarketList(data.prices);
 
-            const badge = document.getElementById('market-status-badge');
+            var badge = document.getElementById('market-status-badge');
             badge.innerText = data.is_open ? '交易中' : '休市';
             badge.className = data.is_open ? 'badge bg-success' : 'badge bg-secondary';
         } catch (e) { console.error('Market fetch error', e); }
 
         try {
-            const res = await fetch('/api/assets');
+            var res = await fetch('/api/assets');
             if (res.status === 401) { showLoginView(); return; }
-            const data = await res.json();
+            var data = await res.json();
             renderAssets(data);
         } catch (e) { console.error('Asset fetch error', e); }
+
+        refreshOrders();
     }
 
     function renderMarketList(prices) {
-        const list = document.getElementById('market-list');
+        var list = document.getElementById('market-list');
         list.innerHTML = '';
 
-        const symbols = Object.keys(prices);
+        var symbols = Object.keys(prices);
         if (!currentSymbol && symbols.length > 0) {
             selectSymbol(symbols[0]);
         }
 
         symbols.forEach(function(sym) {
-            const price = prices[sym];
-            const item = document.createElement('div');
+            var price = prices[sym];
+            var item = document.createElement('div');
             item.className = 'list-group-item market-list-item d-flex justify-content-between align-items-center ' + (sym === currentSymbol ? 'active' : '');
             item.onclick = function() { selectSymbol(sym); };
             item.innerHTML = '<span class="fw-bold">' + sym + '</span>' +
@@ -494,17 +574,17 @@
 
     function renderAssets(data) {
         document.getElementById('asset-balance').innerText = data.balance.toFixed(2);
-        const container = document.getElementById('asset-holdings');
+        var container = document.getElementById('asset-holdings');
 
         if (data.holdings.length === 0) {
             container.innerHTML = '<div class="text-muted text-center mt-3">暂无持仓</div>';
             return;
         }
 
-        let html = '<ul class="list-group list-group-flush small">';
+        var html = '<ul class="list-group list-group-flush small">';
         data.holdings.forEach(function(h) {
-            const price = marketPrices[h.symbol] || 0;
-            const val = price * h.amount;
+            var price = marketPrices[h.symbol] || 0;
+            var val = price * h.amount;
             html += '<li class="list-group-item d-flex justify-content-between px-0">' +
                 '<span>' + h.symbol + '</span>' +
                 '<span class="text-end">' +
@@ -534,8 +614,8 @@
         ensureChartInitialized();
         chartInstance.showLoading();
         try {
-            const res = await fetch('/api/kline/' + sym);
-            const data = await res.json();
+            var res = await fetch('/api/kline/' + sym);
+            var data = await res.json();
             klineCache[sym] = data.data;
             if (data.data.length > 0) {
                 klineLastTime[sym] = data.data[data.data.length - 1].time;
@@ -550,21 +630,21 @@
 
     async function refreshKline() {
         if (!currentSymbol) return;
-        const sym = currentSymbol;
-        const since = klineLastTime[sym];
+        var sym = currentSymbol;
+        var since = klineLastTime[sym];
         if (!since) return;
 
         try {
-            const res = await fetch('/api/kline/' + sym + '?since=' + encodeURIComponent(since));
-            const data = await res.json();
+            var res = await fetch('/api/kline/' + sym + '?since=' + encodeURIComponent(since));
+            var data = await res.json();
             if (data.data.length > 0) {
-                const cached = klineCache[sym] || [];
-                const merged = cached.concat(data.data);
+                var cached = klineCache[sym] || [];
+                var merged = cached.concat(data.data);
                 klineCache[sym] = merged;
                 klineLastTime[sym] = merged[merged.length - 1].time;
 
-                const opt = chartInstance.getOption();
-                let zoomState = null;
+                var opt = chartInstance.getOption();
+                var zoomState = null;
                 if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
                     zoomState = { start: opt.dataZoom[0].start, end: opt.dataZoom[0].end };
                 }
@@ -717,15 +797,15 @@
     }
 
     async function submitTrade() {
-        const action = document.querySelector('input[name="trade-action"]:checked').value;
-        const amount = parseFloat(document.getElementById('trade-amount').value);
-        const priceStr = document.getElementById('trade-price').value;
-        const price = priceStr ? parseFloat(priceStr) : null;
+        var action = document.querySelector('input[name="trade-action"]:checked').value;
+        var amount = parseFloat(document.getElementById('trade-amount').value);
+        var priceStr = document.getElementById('trade-price').value;
+        var price = priceStr ? parseFloat(priceStr) : null;
 
         if (!currentSymbol || !amount) { showToast('请填写完整', 'warning'); return; }
 
         try {
-            const res = await fetch('/api/trade', {
+            var res = await fetch('/api/trade', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -735,7 +815,7 @@
                     action: action
                 })
             });
-            const data = await res.json();
+            var data = await res.json();
             if (res.status === 401) { showLoginView(); return; }
             if (res.ok) {
                 showToast('订单提交成功! ID: ' + data.order_id + ' 状态: ' + data.order_status, 'success');
@@ -747,6 +827,106 @@
             }
         } catch (e) {
             showToast('网络错误: ' + e, 'error');
+        }
+    }
+
+    async function refreshOrders() {
+        if (!currentUser) return;
+        try {
+            var res = await fetch('/api/orders');
+            if (res.status === 401) { showLoginView(); return; }
+            var data = await res.json();
+            renderOrders(data.orders);
+        } catch (e) {
+            console.error('Orders fetch error', e);
+        }
+    }
+
+    function renderOrders(orders) {
+        var container = document.getElementById('orders-container');
+        var countBadge = document.getElementById('orders-count');
+
+        if (!orders || orders.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">' +
+                '<i class="bi bi-inbox fs-3 d-block mb-2 opacity-50"></i>' +
+                '暂无挂单</div>';
+            countBadge.style.display = 'none';
+            return;
+        }
+
+        countBadge.innerText = orders.length;
+        countBadge.style.display = 'inline-block';
+
+        var html = '<div class="table-responsive"><table class="table orders-table">' +
+            '<thead><tr>' +
+            '<th>ID</th>' +
+            '<th>币种</th>' +
+            '<th>方向</th>' +
+            '<th>委托价</th>' +
+            '<th>数量</th>' +
+            '<th>时间</th>' +
+            '<th>操作</th>' +
+            '</tr></thead><tbody>';
+
+        orders.forEach(function(o) {
+            var isBuy = o.order_type === 'buy';
+            var dirBadge = isBuy
+                ? '<span class="badge-buy">买入</span>'
+                : '<span class="badge-sell">卖出</span>';
+            var priceDisplay = o.price !== null ? o.price.toFixed(2) : '<span class="text-muted">市价</span>';
+            var currentPrice = marketPrices[o.symbol] || 0;
+            var priceDiff = '';
+            if (o.price !== null && currentPrice > 0) {
+                var diff = ((currentPrice - o.price) / o.price * 100).toFixed(1);
+                var diffClass = currentPrice >= o.price ? 'price-up' : 'price-down';
+                var diffSign = currentPrice >= o.price ? '+' : '';
+                priceDiff = ' <small class="' + diffClass + '">(' + diffSign + diff + '%)</small>';
+            }
+            var timeDisplay = o.created_at ? o.created_at.substring(5) : '--';
+
+            html += '<tr>' +
+                '<td class="text-muted">#' + o.id + '</td>' +
+                '<td class="fw-bold">' + o.symbol + '</td>' +
+                '<td>' + dirBadge + '</td>' +
+                '<td>' + priceDisplay + priceDiff + '</td>' +
+                '<td>' + o.amount.toFixed(2) + '</td>' +
+                '<td class="text-muted">' + timeDisplay + '</td>' +
+                '<td><button class="btn btn-outline-secondary btn-cancel-order" onclick="cancelOrder(' + o.id + ', this)">' +
+                '<i class="bi bi-x-lg me-1"></i>撤单</button></td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    }
+
+    async function cancelOrder(orderId, btnEl) {
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>撤销中...';
+        }
+
+        try {
+            var res = await fetch('/api/orders/' + orderId + '/cancel', { method: 'POST' });
+            var data = await res.json();
+            if (res.status === 401) { showLoginView(); return; }
+            if (res.ok) {
+                showToast('挂单 #' + orderId + ' 已撤销', 'success');
+                refreshOrders();
+                refreshData();
+            } else {
+                showToast('撤单失败: ' + (data.detail || '未知错误'), 'error');
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = '<i class="bi bi-x-lg me-1"></i>撤单';
+                }
+            }
+        } catch (e) {
+            showToast('网络错误: ' + e, 'error');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '<i class="bi bi-x-lg me-1"></i>撤单';
+            }
         }
     }
 </script>
