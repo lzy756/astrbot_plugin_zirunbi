@@ -37,11 +37,6 @@
     "type": "string",
     "default": ""
   },
-  "rank_trigger_regex": {
-    "description": "排行榜触发正则 (会先对消息做.strip()再用re.match从消息开头匹配; 默认^.*...*$实现包含匹配效果)",
-    "type": "string",
-    "default": "^.*(总资产排名|资产排名|总资产榜|资产榜).*$"
-  },
   "rank_top_n": {
     "description": "排行榜显示前N名",
     "type": "int",
