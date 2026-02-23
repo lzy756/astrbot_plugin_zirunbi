@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 
 from astrbot.api import logger
 from astrbot.api.all import *
@@ -7,6 +8,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 try:
+    from . import leaderboard
     from . import plotter
     from .database import (
         DB,
@@ -15,14 +17,17 @@ try:
         Order,
         OrderStatus,
         OrderType,
+        User,
         UserHolding,
         get_china_time,
     )
     from .market import Market
     from .web_server import WebServer, pwd_context
 except ImportError:
+    import leaderboard
     import plotter
     from database import DB, MarketHistory, MarketNews, Order, OrderStatus, OrderType, UserHolding, get_china_time
+    from database import User
     from market import Market
     from web_server import WebServer, pwd_context
 
@@ -36,13 +41,14 @@ class ZRBTrader(Star):
         self.config = config
         self.db_path = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'zirunbi.db')}"
         self.db = DB(self.db_path)
-        
+
         # Init plotter font
         font_path = config.get("font_path", "")
         plotter.init_font(font_path)
-        
+
         self.market = Market(self.db, config)
         self.market.start()
+        self._rank_last_ts_by_group = {}
 
         # Start Web Server
         web_port = config.get("web_port", 8000)
@@ -67,6 +73,38 @@ class ZRBTrader(Star):
             logger.error(f"Save temp image error: {e}")
             return None
 
+    def _parse_rank_top_n(self, args=None):
+        try:
+            top_n = int(self.config.get("rank_top_n", 10))
+        except (TypeError, ValueError):
+            top_n = 10
+        if args and len(args) > 2:
+            try:
+                top_n = int(args[2])
+            except (TypeError, ValueError):
+                pass
+        return max(1, min(top_n, 50))
+
+    def _render_rank_message(self, top_n):
+        session = self.db.get_session()
+        try:
+            user_rows = session.query(User.user_id, User.balance).all()
+            holding_rows = session.query(UserHolding.user_id, UserHolding.symbol, UserHolding.amount).all()
+        finally:
+            session.close()
+
+        users = [(str(uid), float(balance)) for uid, balance in user_rows]
+        holdings = [(str(uid), str(symbol), float(amount)) for uid, symbol, amount in holding_rows]
+        with self.market.lock:
+            prices = dict(self.market.prices)
+        entries = leaderboard.compute_leaderboard(users, holdings, prices, top_n)
+        status_info = self.market.get_status_info()
+        header_meta = {
+            "updated_at": get_china_time().strftime("%Y-%m-%d %H:%M:%S"),
+            "market_status": status_info.get("status", "未知"),
+        }
+        return leaderboard.format_leaderboard(entries, top_n, header_meta)
+
     @filter.command("zrb")
     async def zrb(self, event: AstrMessageEvent):
         """模拟炒股指令"""
@@ -90,12 +128,14 @@ class ZRBTrader(Star):
 
 👤 账户
 /zrb assets       我的资产
+/zrb rank [N]     资产排行
 /zrb today        今日盈亏
 /zrb reset        重置账户
 
 ⚙️ 系统
 /zrb time         开市时间
 /zrb admin        管理指令
+群聊发送“总资产排名/资产榜”也可触发
 /zrb register <密码> 注册Web账号"""
             yield event.plain_result(help_text)
             return
@@ -103,7 +143,7 @@ class ZRBTrader(Star):
         cmd = args[1]
         user_id = event.get_sender_id()
         user_name = event.get_sender_name()
-        
+
         # Admin check helper
         def is_admin():
             return user_id in self.config.get("admin_ids", [])
@@ -118,7 +158,7 @@ class ZRBTrader(Star):
             if len(args) < 3:
                 yield event.plain_result("请设置密码: /zrb register <您的密码>")
                 return
-            
+
             password = args[2]
             if len(password) < 6:
                 yield event.plain_result("密码长度至少需要6位")
@@ -127,26 +167,26 @@ class ZRBTrader(Star):
             # Note: We should handle private chat context ideally, but here we just check if user exists
             # Ideally user should do this in private chat to avoid leaking password
             # But let's proceed.
-            
+
             user, session = self.db.get_or_create_user(user_id)
-            
+
             # Hash password
             pw_hash = pwd_context.hash(password)
             user.password_hash = pw_hash
             session.commit()
             session.close()
-            
+
             # Construct URL
             web_url = self.config.get("web_public_url", "")
             if not web_url:
                 web_port = self.config.get("web_port", 8000)
                 web_url = f"http://<BotIP>:{web_port}"
-            
+
             msg = "✅ Web账号注册成功！\n"
             msg += f"👤 账号: {user_id}\n"
             msg += f"🔑 密码: {password} (请妥善保管)\n"
             msg += f"🌐 登录地址: {web_url}"
-            
+
             yield event.plain_result(msg)
 
         elif cmd == "price":
@@ -155,14 +195,14 @@ class ZRBTrader(Star):
             if len(args) > 2:
                 sym = args[2].upper()
                 if sym in self.market.prices:
-                     msg += f"{sym}: {self.market.prices[sym]:.2f}\n"
+                    msg += f"{sym}: {self.market.prices[sym]:.2f}\n"
                 else:
                     msg += f"未知币种: {sym}"
             else:
                 for sym, price in self.market.prices.items():
                     msg += f"{sym}: {price:.2f}\n"
             yield event.plain_result(msg)
-            
+
         elif cmd == "kline":
             if len(args) < 3:
                 yield event.plain_result("请输入币种，例如: /zrb kline ZRB [数量]")
@@ -185,15 +225,21 @@ class ZRBTrader(Star):
 
             session = self.db.get_session()
             try:
-                history = session.query(MarketHistory).filter_by(symbol=sym).order_by(MarketHistory.timestamp.desc()).limit(kline_limit).all()
+                history = (
+                    session.query(MarketHistory)
+                    .filter_by(symbol=sym)
+                    .order_by(MarketHistory.timestamp.desc())
+                    .limit(kline_limit)
+                    .all()
+                )
                 history = history[::-1]
             finally:
                 session.close()
-            
+
             if not history:
                 yield event.plain_result(f"暂无 {sym} 历史数据")
                 return
-                
+
             title_suffix = " (Closed)" if not self.market.is_open else ""
             img_buf = plotter.plot_kline(history, title=f"{sym} K-Line ({len(history)}){title_suffix}")
             if img_buf:
@@ -210,38 +256,40 @@ class ZRBTrader(Star):
             if len(args) < 3:
                 yield event.plain_result("请输入币种，例如: /zrb history ZRB")
                 return
-            
+
             sym = args[2].upper()
             if sym not in self.market.symbols:
                 yield event.plain_result(f"不支持的币种: {sym}")
                 return
-            
+
             days = 3
             if len(args) > 3:
                 try:
                     days = int(args[3])
-                    days = max(1, min(days, 30)) # Limit 1 to 30 days
+                    days = max(1, min(days, 30))  # Limit 1 to 30 days
                 except ValueError:
                     pass
-            
+
             session = self.db.get_session()
             now = get_china_time()
             start_date = now - timedelta(days=days)
-            
-            history = session.query(MarketHistory).filter(
-                MarketHistory.symbol == sym,
-                MarketHistory.timestamp >= start_date
-            ).order_by(MarketHistory.timestamp).all()
+
+            history = (
+                session.query(MarketHistory)
+                .filter(MarketHistory.symbol == sym, MarketHistory.timestamp >= start_date)
+                .order_by(MarketHistory.timestamp)
+                .all()
+            )
             session.close()
-            
+
             if not history:
                 yield event.plain_result("当日无数据")
                 return
-            
+
             # If too many points, resample might be needed, but for now just plot all (mpf handles reasonable amount)
             # If > 500 points, maybe limit? 3 mins * 4 hours * days = 80 points/day. 3 days = 240. 30 days = 2400.
             # mpf can handle 2400 but might be crowded. Let's limit display logic if needed later.
-            
+
             img_buf = plotter.plot_kline(history, title=f"{sym} History ({days} Days)")
             if img_buf:
                 img_path = self._save_temp_image(img_buf)
@@ -258,16 +306,20 @@ class ZRBTrader(Star):
             # Only show news from today
             now = get_china_time()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            
-            news_list = session.query(MarketNews).filter(
-                MarketNews.timestamp >= today_start
-            ).order_by(MarketNews.timestamp.desc()).limit(10).all()
+
+            news_list = (
+                session.query(MarketNews)
+                .filter(MarketNews.timestamp >= today_start)
+                .order_by(MarketNews.timestamp.desc())
+                .limit(10)
+                .all()
+            )
             session.close()
-            
+
             if not news_list:
                 yield event.plain_result("今日暂无市场新闻。")
                 return
-            
+
             msg = f"【今日市场快讯 ({now.strftime('%m-%d')})】\n"
             for n in news_list:
                 t_str = n.timestamp.strftime("%H:%M")
@@ -279,37 +331,37 @@ class ZRBTrader(Star):
             session = self.db.get_session()
             now = get_china_time()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            
-            orders = session.query(Order).filter(
-                Order.user_id == user_id,
-                Order.status == OrderStatus.FILLED,
-                Order.created_at >= today_start
-            ).all()
+
+            orders = (
+                session.query(Order)
+                .filter(Order.user_id == user_id, Order.status == OrderStatus.FILLED, Order.created_at >= today_start)
+                .all()
+            )
             session.close()
-            
+
             msg = f"【今日交易日报】\n📅 {now.strftime('%Y-%m-%d')}\n\n"
-            
+
             if not orders:
                 msg += "今日无交易记录。\n"
             else:
-                buy_stats = {} # {symbol: {count, total_amt, total_cost}}
+                buy_stats = {}  # {symbol: {count, total_amt, total_cost}}
                 sell_stats = {}
-                
+
                 for o in orders:
                     stats = buy_stats if o.order_type == OrderType.BUY else sell_stats
                     if o.symbol not in stats:
                         stats[o.symbol] = {'count': 0, 'amt': 0.0, 'cost': 0.0}
-                    
+
                     stats[o.symbol]['count'] += 1
                     stats[o.symbol]['amt'] += o.amount
-                    # For filled orders, price should be set. If None (market order), we approximate or skip cost calc if not recorded. 
-                    # Note: In real system, we should record execution price. Currently Order.price is limit price. 
+                    # For filled orders, price should be set. If None (market order), we approximate or skip cost calc if not recorded.
+                    # Note: In real system, we should record execution price. Currently Order.price is limit price.
                     # Simplified: use Order.price if set, else approximate with current price (inaccurate).
-                    # Better: Market logic should update Order.price to execution price upon fill. 
+                    # Better: Market logic should update Order.price to execution price upon fill.
                     # Assuming Market logic updates price or we accept limit price as approximation.
-                    # Actually market.py doesn't update order.price to execution price for market orders. 
+                    # Actually market.py doesn't update order.price to execution price for market orders.
                     # It uses current price. Let's just show amount.
-                    
+
                 msg += "💰 交易统计:\n"
                 if buy_stats:
                     msg += "  [买入]\n"
@@ -319,11 +371,11 @@ class ZRBTrader(Star):
                     msg += "  [卖出]\n"
                     for sym, data in sell_stats.items():
                         msg += f"  - {sym}: {data['amt']:.2f}个 ({data['count']}笔)\n"
-            
+
             msg += "\n📈 即时币价:\n"
             for sym, price in self.market.prices.items():
                 msg += f"{sym}: {price:.2f}\n"
-                
+
             yield event.plain_result(msg)
 
         elif cmd == "time":
@@ -348,62 +400,66 @@ class ZRBTrader(Star):
                 "MIAO": "【喵喵币 (Miao Coin)】\n代号: MIAO\n由神秘的猫咪组织发行，充满变数与灵动。据说只有被选中的铲屎官才能驾驭。\n(虚拟资产，仅供娱乐)",
                 "QUNZHU": "【群主币 (Group Owner Coin)】\n代号: QUNZHU\n群主的权威象征，价格随群主心情波动（大雾）。\n(虚拟资产，仅供娱乐)",
                 "IDEAL": "【理想币 (Ideal Coin)】\n代号: IDEAL\n来自卡拉彼丘世界的通用货币，承载着引航者的梦想与希望。\n(虚拟资产，仅供娱乐)",
-                "FEN": "【左旋布洛芬币 (MsLbuprofen Coin)】\n代号: FEN\n这是群友喵，做进游戏了喵。\n(虚拟资产，仅供娱乐)"
+                "FEN": "【左旋布洛芬币 (MsLbuprofen Coin)】\n代号: FEN\n这是群友喵，做进游戏了喵。\n(虚拟资产，仅供娱乐)",
             }
-            
+
             if len(args) > 2:
                 sym = args[2].upper()
                 if sym in coin_info:
                     yield event.plain_result(coin_info[sym])
                 else:
                     if sym in self.market.symbols:
-                         yield event.plain_result(f"【{sym}】\n暂无详细介绍。\n(虚拟资产，仅供娱乐)")
+                        yield event.plain_result(f"【{sym}】\n暂无详细介绍。\n(虚拟资产，仅供娱乐)")
                     else:
                         yield event.plain_result(f"未知币种: {sym}")
             else:
                 msg = "【币种介绍大全 (虚拟资产)】\n\n"
                 for _code, desc in coin_info.items():
-                    msg += f"{desc}\n{'-'*20}\n"
+                    msg += f"{desc}\n{'-' * 20}\n"
                 yield event.plain_result(msg)
 
         elif cmd == "change":
             # /zrb change
-            # Base prices are initial prices for simplicity in this simulation context, 
+            # Base prices are initial prices for simplicity in this simulation context,
             # or we could track "Open" price of the day.
             # Let's use the 'Open' price of the current candle (which resets daily? No, current_candles in market.py are 3-min candles).
             # We should get today's opening price.
             # In market.py: self.prices is current price.
             # We need to find Today's Open.
-            
+
             session = self.db.get_session()
             now = get_china_time()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
             msg = "【今日涨跌幅】\n"
             msg += f"基准时间: {today_start.strftime('%Y-%m-%d 00:00')}\n\n"
-            
+
             for sym in self.market.symbols:
                 # Get first history entry of today or last entry of yesterday as base
                 # Actually, let's just find the first history record >= today_start
                 # If no record today, find the last one before today.
-                
+
                 base_price = None
-                
+
                 # 1. Try to find the first record of today
-                first_today = session.query(MarketHistory).filter(
-                    MarketHistory.symbol == sym,
-                    MarketHistory.timestamp >= today_start
-                ).order_by(MarketHistory.timestamp.asc()).first()
-                
+                first_today = (
+                    session.query(MarketHistory)
+                    .filter(MarketHistory.symbol == sym, MarketHistory.timestamp >= today_start)
+                    .order_by(MarketHistory.timestamp.asc())
+                    .first()
+                )
+
                 if first_today:
                     base_price = first_today.open
                 else:
                     # 2. If no record today, try last record before today
-                    last_prev = session.query(MarketHistory).filter(
-                        MarketHistory.symbol == sym,
-                        MarketHistory.timestamp < today_start
-                    ).order_by(MarketHistory.timestamp.desc()).first()
-                    
+                    last_prev = (
+                        session.query(MarketHistory)
+                        .filter(MarketHistory.symbol == sym, MarketHistory.timestamp < today_start)
+                        .order_by(MarketHistory.timestamp.desc())
+                        .first()
+                    )
+
                     if last_prev:
                         base_price = last_prev.close
                     else:
@@ -412,22 +468,22 @@ class ZRBTrader(Star):
                         base_price = self.market.prices.get(sym, 100.0)
 
                 current_price = self.market.prices.get(sym, 0.0)
-                
+
                 if base_price and base_price > 0:
                     diff = current_price - base_price
                     pct = (diff / base_price) * 100
-                    
+
                     # Formatting
                     color_icon = "📈" if diff > 0 else "📉" if diff < 0 else "➖"
                     sign = "+" if diff > 0 else ""
-                    
+
                     msg += f"{sym}: {current_price:.2f} (基准: {base_price:.2f})\n"
                     msg += f"{color_icon} {sign}{diff:.2f} ({sign}{pct:.2f}%)\n"
                 else:
                     msg += f"{sym}: {current_price:.2f} (暂无基准)\n"
-                
-                msg += "-"*20 + "\n"
-            
+
+                msg += "-" * 20 + "\n"
+
             session.close()
             yield event.plain_result(msg)
 
@@ -436,12 +492,12 @@ class ZRBTrader(Star):
             if len(args) < 4:
                 yield event.plain_result(f"格式错误。示例: /zrb {cmd} ZRB 100")
                 return
-            
+
             symbol = args[2].upper()
             if symbol not in self.market.symbols:
                 yield event.plain_result(f"不支持的币种: {symbol}")
                 return
-                
+
             try:
                 amount = float(args[3])
                 price = float(args[4]) if len(args) > 4 else None
@@ -454,16 +510,16 @@ class ZRBTrader(Star):
                 return
 
             user, session = self.db.get_or_create_user(user_id)
-            
+
             # Basic validation
             if cmd == "buy":
                 est_price = price if price else self.market.prices[symbol]
-                cost = est_price * amount * 1.001 # +0.1% fee
+                cost = est_price * amount * 1.001  # +0.1% fee
                 if user.balance < cost:
                     session.close()
                     yield event.plain_result(f"余额不足。预估需要 {cost:.2f}, 当前余额 {user.balance:.2f}")
                     return
-            else: # sell
+            else:  # sell
                 # Check holding
                 holding = session.query(UserHolding).filter_by(user_id=user_id, symbol=symbol).first()
                 if not holding or holding.amount < amount:
@@ -472,25 +528,19 @@ class ZRBTrader(Star):
                     return
 
             order_type = OrderType.BUY if cmd == "buy" else OrderType.SELL
-            order = Order(
-                user_id=user_id,
-                symbol=symbol,
-                order_type=order_type,
-                price=price,
-                amount=amount
-            )
+            order = Order(user_id=user_id, symbol=symbol, order_type=order_type, price=price, amount=amount)
             session.add(order)
             session.commit()
             order_id = order.id
             session.close()
-            
+
             # Trigger immediate match
             self.market.match_single_order(order_id)
-            
+
             # Check status
             session = self.db.get_session()
             updated_order = session.query(Order).get(order_id)
-            
+
             if updated_order.status == OrderStatus.FILLED:
                 status_msg = "✅ 已成交"
                 desc = f"成交价格: {self.market.prices[symbol]:.2f}"
@@ -501,19 +551,21 @@ class ZRBTrader(Star):
                 else:
                     status_msg = "⏱️ 已挂单"
                     desc = "订单已提交，等待市场价格到达指定价位。"
-            
+
             session.close()
 
-            yield event.plain_result(f"{cmd.upper()} 订单已提交。\n状态: {status_msg}\n说明: {desc}\n订单ID: {order_id}")
+            yield event.plain_result(
+                f"{cmd.upper()} 订单已提交。\n状态: {status_msg}\n说明: {desc}\n订单ID: {order_id}"
+            )
 
         elif cmd == "assets":
             user, session = self.db.get_or_create_user(user_id)
             holdings = session.query(UserHolding).filter_by(user_id=user_id).all()
-            
+
             msg = f"【用户资产 - {user_name}】\n"
             msg += f"可用资金: {user.balance:.2f}\n"
             msg += "持仓:\n"
-            
+
             holdings_dict = {}
             has_holdings = False
             for h in holdings:
@@ -523,26 +575,37 @@ class ZRBTrader(Star):
                     holdings_dict[h.symbol] = value
                     msg += f"- {h.symbol}: {h.amount:.4f} (市值: {value:.2f})\n"
                     has_holdings = True
-            
+
             if not has_holdings:
                 msg += "无\n"
-                
+
             session.close()
-            
+
             # Plot
             img_buf = plotter.plot_holdings_multi(user.balance, holdings_dict)
             img_path = self._save_temp_image(img_buf)
-            
+
             if img_path:
                 yield event.image_result(img_path)
 
             yield event.plain_result(msg)
 
+        elif cmd == "rank" or cmd == "ranking":
+            try:
+                rank_admin_only = int(self.config.get("rank_admin_only", 0))
+            except (TypeError, ValueError):
+                rank_admin_only = 0
+            if rank_admin_only == 1 and not is_admin():
+                yield event.plain_result("权限不足")
+                return
+            top_n = self._parse_rank_top_n(args)
+            yield event.plain_result(self._render_rank_message(top_n))
+
         elif cmd == "orders":
             session = self.db.get_session()
             orders = session.query(Order).filter_by(user_id=user_id, status=OrderStatus.PENDING).all()
             session.close()
-            
+
             if not orders:
                 yield event.plain_result("当前无挂单。")
             else:
@@ -572,8 +635,8 @@ class ZRBTrader(Star):
 
         elif cmd == "reset":
             if not is_admin():
-                 yield event.plain_result("权限不足")
-                 return
+                yield event.plain_result("权限不足")
+                return
             # Admin only for now, or user self-reset? Let's allow user self-reset for fun
             user, session = self.db.get_or_create_user(user_id)
             user.balance = 10000.0
@@ -588,11 +651,11 @@ class ZRBTrader(Star):
             if not is_admin():
                 yield event.plain_result("权限不足")
                 return
-            
+
             if len(args) < 3:
                 yield event.plain_result("Usage: /zrb admin [open|close]")
                 return
-                
+
             sub = args[2]
             if sub == "open":
                 self.market.set_open(True)
@@ -602,3 +665,39 @@ class ZRBTrader(Star):
                 yield event.plain_result("市场已休市。")
             else:
                 yield event.plain_result("未知指令")
+
+    # @filter.regex(r"^.*(总资产排名|资产排名|总资产榜|资产榜).*$")
+    # @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    # async def rank_trigger(self, event: AstrMessageEvent):
+    #     pattern = self.config.get('rank_trigger_regex', r'^.*(总资产排名|资产排名|总资产榜|资产榜).*$')
+    #     rx = leaderboard.compile_trigger_regex(pattern)
+    #     text = leaderboard.normalize_trigger_text(event.message_str)
+    #     if not rx.match(text):
+    #         return
+
+    #     group_id = event.get_group_id()
+    #     if not group_id:
+    #         return
+    #     group_id = str(group_id)
+
+    #     try:
+    #         cd = int(self.config.get('rank_cooldown_seconds', 30))
+    #     except (TypeError, ValueError):
+    #         cd = 30
+
+    #     now = time.time()
+    #     last_ts = self._rank_last_ts_by_group.get(group_id)
+    #     if not leaderboard.cooldown_allow(last_ts, now, cd):
+    #         return
+
+    #     try:
+    #         rank_admin_only = int(self.config.get("rank_admin_only", 0))
+    #     except (TypeError, ValueError):
+    #         rank_admin_only = 0
+    #     if rank_admin_only == 1 and event.get_sender_id() not in self.config.get("admin_ids", []):
+    #         return
+
+    #     self._rank_last_ts_by_group[group_id] = now
+    #     top_n = self._parse_rank_top_n()
+    #     event.stop_event()
+    #     yield event.plain_result(self._render_rank_message(top_n))
