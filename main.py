@@ -1,6 +1,5 @@
 import os
 import tempfile
-import time
 
 from astrbot.api import logger
 from astrbot.api.all import *
@@ -8,8 +7,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 try:
-    from . import leaderboard
-    from . import plotter
+    from . import leaderboard, plotter
     from .database import (
         DB,
         MarketHistory,
@@ -26,8 +24,7 @@ try:
 except ImportError:
     import leaderboard
     import plotter
-    from database import DB, MarketHistory, MarketNews, Order, OrderStatus, OrderType, UserHolding, get_china_time
-    from database import User
+    from database import DB, MarketHistory, MarketNews, Order, OrderStatus, OrderType, User, UserHolding, get_china_time
     from market import Market
     from web_server import WebServer, pwd_context
 

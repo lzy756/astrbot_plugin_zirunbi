@@ -2,7 +2,6 @@ import re
 from collections.abc import Iterable
 from typing import cast
 
-
 NON_MATCHING_REGEX: re.Pattern[str] = re.compile(r"$.^")
 
 
